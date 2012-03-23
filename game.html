@@ -1,0 +1,987 @@
+<!DOCTYPE html><html>
+<head>
+<title>Test game like</title>
+<meta name = "viewport" content = "user-scalable=no, width=device-width">
+<style>
+body
+{
+    margin:0 auto;
+}
+
+.sjs
+{
+    background:#f1f4fe;
+    border:1px #333 solid;
+}
+</style>
+</head>
+<body>
+<span id='log'></span>
+</body>
+<script src="batiste-sprite.js-93b940d/vendors/touch.js"></script>
+<script src="batiste-sprite.js-93b940d/sprite.js"></script>
+<script src="batiste-sprite.js-93b940d/lib/collision.js"></script>
+<script>
+
+window.onload = function()
+{
+    var game_height = 512;
+    var game_width = 512;
+    var rootScene = sjs.Scene({w:game_width, h:game_height, useCanvas:true, autoPause:false});
+	var frameCounter=0;
+
+    var input  = rootScene.Input();
+	var objs=sjs.List();
+	var idCounter=0;
+
+	//1. задан fn = 1 - w и h вычисляются
+	//2. задан w и h - rn, cn, fn вычисляется
+	//3. не задан src - src = img/name.png
+	function AnimMgr()
+	{
+		var mgr={};
+		
+		mgr.graph=[];
+		mgr.get=function(name)
+		{
+			var ref=this.graph[name];
+			if(ref && !ref.frameInfo)
+				ref.frameInfo=function(n)
+				{
+					n=Math.min(n,this.fn);
+					var rn=parseInt(n/this.cn);
+					var cn=n-rn*this.cn;
+					return {x: cn*this.w, y:rn*this.h, w:this.w, h:this.h, num:this.fn};
+				}
+			return ref;
+		}
+		
+		mgr.load=function(callback)
+		{
+			var graph=mgr.graph;
+			
+			graph["bullet"]=	{};
+			graph["missile"]=	{w:32, h:56};
+			graph["smoke"]=		{};
+			graph["spaceShip"]=	{};
+			graph["meteor"]=	{w:64, h:64};
+			graph["meteorHq"]=	{w:128, h:128};
+			graph["boom"]=		{w:96, h:96};
+			graph["sfx"]=		{w:67, h:64};
+			graph["sfx2"]=		{w:33, h:64};
+			
+			var imgs=[];
+			for(var name in graph)
+			{
+				var g=graph[name];
+				if(!g['src'])
+					g.src="img/"+name+".png";
+				imgs.push(g.src);
+				if(!g['fn'] && !g['rn'] && !g['cn'] && !g['w'] && !g['h'])
+				{
+					g.fn=1;
+					g.rc=1;
+					g.cn=1;
+				}
+			}
+			
+			rootScene.loadImages(imgs, function()
+			{
+				for(var name in graph)
+				{
+					var g=graph[name];
+					var spr=rootScene.Sprite(g.src);
+					if(g['fn']==1 && !g['w'] && !g['h'])
+					{
+						g.w=spr.w;
+						g.h=spr.h;
+					}
+					else if(!g['fn'] && g['w'] && g['h'])
+					{
+						g.cn=spr.w/g.w;
+						g.rn=spr.h/g.h;
+						g.fn=g.cn*g.rn;
+					}
+					else if(g['fn'] && !g['w'] && !g['h'])
+					{
+						if(spr.w>spr.h)
+						{
+							g.rn=1;
+							g.cn=g.fn;
+							g.w=spr.w/g.fn
+							g.h=spr.h;
+						}
+						else
+						{
+							g.cn=1;
+							g.rn=g.fn;
+							g.h=spr.h/g.fn
+							g.w=spr.w;
+						}
+					}
+					else if(g['rn'] && g['cn'] && !g['w'] && !g['h'])
+					{
+						g.w=spr.w/g.cn;
+						g.h=spr.h/g.rn;
+						
+						if(!g['fn'])
+							g.fn=g.cn*g.rn;
+						g.fn=Math.min(g.cn*g.rn, g.fn);
+					}
+					
+					spr.remove();
+				}
+				
+				if(callback)
+					callback();
+			});
+		}
+		
+		return mgr;
+	}
+	
+	function degAngle(a)
+	{
+		return a*Math.PI/180;
+	}
+	
+	function vecToAngle(vx, vy)
+	{
+		var len=Math.sqrt(vx*vx+vy*vy);
+		if(len>1)
+		{
+			vx/=len;
+			vy/=len;
+		}
+		if(vx==0)
+			vx=0.000001;
+		var a=Math.atan(vy/vx)+Math.PI/2;
+		a=Math.PI*2-a;
+		if(vx>0)
+			a+=Math.PI;
+			
+		while(a<0)
+			a+=Math.PI*2;
+		while(a>Math.PI*2)
+			a-=Math.PI*2;
+		return a;
+	}
+	
+	function normVec(vx, vy)
+	{
+		var len=Math.sqrt(vx*vx+vy*vy);
+		return [vx/len, vy/len];
+	}
+	
+	function drawLine(from, to, opts)
+	{
+		width=1;
+		color='#000000';
+		ctx=rootScene.layers.default.ctx;
+		
+		if(opts)
+		{
+			if(opts['width'])
+				ctx.lineWidth = opts.width;
+			
+			if(opts['color'])
+				ctx.strokeStyle='#'+opts.color.toString(16);
+		}
+		
+		ctx.beginPath();
+		ctx.moveTo(from[0],from[1]);
+		ctx.lineTo(to[0], to[1]);
+		ctx.stroke();
+	}
+	function drawCircle(center, radius, opts)
+	{
+		width=1;
+		color='#000000';
+		ctx=rootScene.layers.default.ctx;
+		
+		if(opts)
+		{
+			if(opts['width'])
+				ctx.lineWidth = opts.width;
+			
+			if(opts['color'])
+				ctx.strokeStyle='#'+opts.color.toString(16);
+		}
+		
+		ctx.beginPath();
+		ctx.arc(center[0],center[1],radius,0,Math.PI*2,true);
+		ctx.stroke();
+	}
+	function findEnemyFor(obj, first)
+	{
+		var minDist=9999;
+		var found=null;
+		var n=-1;
+		while(++n<objs.length)
+		{
+			var en=objs.list[n];
+			if(en==obj || en.sfx || !en.live)
+				continue;
+				
+			if(!en.isEnemyFor(obj))
+				continue;
+			var dist=obj.distanceTo(en);
+			if(dist<minDist)
+			{
+				found=en;
+				minDist=dist;
+			}
+			
+			if(first)
+				break;
+		}
+		
+		return found;
+	}
+	
+	function GameObj(opts)
+	{
+		var x_=0;
+		var y_=0;
+		var w_=32;
+		var h_=32;
+		
+		if(opts['x'])
+			x_=opts.x;
+		if(opts['y'])
+			y_=opts.y;
+		if(opts['w'])	
+			w_=opts.w;
+		if(opts['h'])
+			h_=opts.h;
+		
+		var obj={x:x_, y:y_, w:w_, h:h_, scale:1, angle:0, sprite:null, vx: 0, vy:0, shown: false, alpha:1};
+		obj.owner=opts['owner'];
+		if(opts['scale'])
+			obj.scale=opts.scale;
+		if(opts['angle'])
+			obj.angle=opts.angle;
+		obj.target=opts['target'];
+		obj.live=true;
+		obj.timeVals={maked:ticker.currentTick};
+		obj.frame=0;
+		obj.life=100;
+		obj.id=idCounter++;
+		obj.ofX=0;
+		obj.ofY=0;
+		obj.radius=Math.min(obj.w/2, obj.h/2);
+		obj.childs=[];
+		obj.parent=null;
+		
+		obj.sideId=0;
+		if(obj.owner)
+			obj.sideId=obj.owner.sideId;
+			
+		obj.sfx=false;
+		
+		obj.timeVals.elapsed=function(val)
+		{
+			return ticker.currentTick-this[val];
+		}
+		
+		obj.timers=[];
+		obj.addTimer=function(func, everyTick)
+		{
+			this.timers.push({func:func, ticks:everyTick, last:ticker.currentTick});
+		}
+		
+		obj.updateSprite=function()
+		{
+			if(this.sprite==null)
+				return;
+			
+			var xOrig=0;
+			var yOrig=0;
+			if(this.parent!=null)
+			{
+				var ap=this.parent.getAbsPos();
+				xOrig=ap[0];
+				yOrig=ap[1];
+			}
+			
+			this.sprite.position(xOrig+(this.x-this.sprite.w/2+this.ofX), yOrig+(this.y-this.sprite.h/2+this.ofY));
+			this.sprite.setAngle(Math.PI*3-this.angle);
+			this.sprite.scale(this.scale);
+			this.sprite.setOpacity(this.alpha);
+			this.sprite.update();
+			
+			var n=-1;
+			while(++n<this.childs.length)
+			{
+				var child=this.childs[n];
+				child.updateSprite();
+				child.alpha=this.alpha;
+			}
+		}
+		
+		obj.distanceTo=function(toObj)
+		{
+			try
+			{
+				var dx=toObj.x-this.x;
+				var dy=toObj.y-this.y;
+				var len=Math.sqrt(dx*dx+dy*dy);
+				return len-(this.radius*this.scale+toObj.radius*toObj.scale);
+			}
+			catch(e)
+			{
+				return 10000;
+			}
+		}
+		
+		obj.isEnemyFor=function(en)
+		{
+			return this.sideId!=en.sideId;
+		}
+		
+		obj.makeSprite=function(img, scene, layer)
+		{
+			if(!scene)
+				scene=rootScene;
+				
+			if(this.sprite!=null)
+				this.sprite.remove();
+			
+			this.anim=animMgr.get(img);
+			this.sprite=scene.Sprite(this.anim.src, layer);
+			
+			var f=this.anim.frameInfo(0);
+			this.frames=f.num;
+			this.sprite.size(f.w, f.h);
+			this.setFrame(0);
+		}
+		obj.setFrame=function(n)
+		{
+			var f=this.anim.frameInfo(Math.min(n, this.frames));
+			this.sprite.setXOffset(f.x);
+			this.sprite.setYOffset(f.y);
+			return this;
+		}
+		obj.updateVector=function()
+		{
+			this.vx=Math.sin(this.angle);
+			this.vy=Math.cos(this.angle);
+		}
+		obj.timeLeftToDie=function()
+		{
+			if(!this['lifeTime'])
+				return undefined;
+			return Math.max(this.lifeTime-(ticker.currentTick-this.timeVals.maked), 0);
+		}
+		
+		obj._doThink=function()
+		{
+			if(this['lifeTime'])
+				this.live=this.timeLeftToDie()>0;
+			
+			var n=this.timers.length;
+			while(--n>=0)
+			{
+				var timer=this.timers[n];
+				if(ticker.currentTick-timer.last<timer.ticks)
+					continue;
+				timer.last=ticker.currentTick;
+				timer.func.call(this, timer);
+				if(timer['stop'])
+					this.timers.splice(this.timers.indexOf(timer),1);
+			}
+				
+			if(this.live)
+				this.doThink();
+				
+			n=-1;
+			while(++n<this.childs.length)
+			{
+				var child=this.childs[n];
+				child._doThink();
+			}
+		}
+		obj.doThink=function(){};
+		
+		obj.doRemove=function(time)
+		{
+			this.live=false;
+			this.timers=[];
+			
+			if(time)
+			{
+				this.waitToDie=true;
+				this.addTimer(function(timer)
+				{
+					this.sprite.remove();
+					objs.remove(this);
+					timer.stop=true;
+				}, time);
+			}
+			else
+			{
+				this.sprite.remove();
+				objs.remove(this);
+			}
+		}
+		
+		obj.onAfterDraw=function()
+		{
+			//drawCircle([this.x, this.y], this.radius);
+		}
+		
+		obj.intersect=function(x_, y_, w_, h_)
+		{
+			var x2 = Math.min(this.x+this.w, x_+w_);
+			var y2 = Math.min(this.y+this.h, y_+h_);
+			x_ = Math.max(this.x, x_);
+			y_ = Math.max(this.y, y_);
+			
+			w_=x2-x_+1;
+			h_=y2-y_+1;
+			return w_>0 && h_>0;
+		}
+		
+		obj.getTurnAngle=function(newAngle, turnSpeed)
+		{
+			var na=newAngle-this.angle;
+			if(na<0)
+				na+=Math.PI*2;
+			else if(na>Math.PI*2)
+				na-=Math.PI*2;
+			
+			if(na>Math.PI)
+				return this.angle-turnSpeed;
+			return this.angle+turnSpeed;
+		}
+		
+		obj.addChild=function(child)
+		{
+			this.childs.push(child);
+			child.parent=this;
+			objs.remove(child);
+			return child;
+		}
+		
+		obj.onHit=function()
+		{
+			this.live=this.life>=0;
+			this.timeVals.lastHit=ticker.currentTick;
+		}
+		obj._onHit=obj.onHit;
+		
+		obj.getAbsPos=function()
+		{
+			var pos=[this.x, this.y];
+			
+			var p=this.parent;
+			while(p!=null)
+			{
+				pos[0]+=p.x;
+				pos[1]+=p.y;
+				p=p.parent;
+			}
+			
+			return pos;
+		}
+		
+		obj.updateFrame=function(ts, frms)
+		{
+			if(!ts)
+				ts=5;
+			if(!frms)
+				frms=this.frames;
+			this.setFrame(parseInt(this.timeVals.elapsed('maked')/ts)%frms);
+		}
+		objs.add(obj);
+		return obj;
+	}
+	
+	function Player(opts)
+	{
+		if(!opts)
+			opts={};
+			
+		var sz=64;
+		if(!opts['x'])
+			opts.x=game_width/2-sz/2;
+		if(!opts['y'])
+			opts.y=game_height-sz;
+		if(!opts['w'])
+			opts.w=sz;
+		if(!opts['h'])
+			opts.h=sz;
+			
+		var player=GameObj(opts);
+		player.angle=degAngle(180);
+		player.ticksPerFire=30;
+		player.lastFireTick=0;
+		player.bullets=sjs.List();
+		
+		player.makeSprite("spaceShip");
+		player.doFire=function()
+		{
+			var delta=ticker.currentTick-this.lastFireTick;
+			if(delta<this.ticksPerFire)
+				return;
+			this.lastFireTick=ticker.currentTick;
+			this.onFire();
+		}
+		
+		player.onFire=function()
+		{
+			/*var missile=Missile({owner:this, x:this.x, y:this.y});
+			missile.setTarget(findEnemyFor(missile));*/
+			var bullet=Bullet({owner:this});
+		}
+		
+		player.doThink=function()
+		{
+			var speed=5;
+			var ofx=0;
+			var ofy=0;
+
+			if(input.keyboard.space)
+				this.doFire();
+				
+			if(input.keyboard.left)
+				ofx=-speed;
+			
+			if(input.keyboard.right)
+				ofx=speed;
+			
+			if(input.keyboard.up)
+				ofy=-speed;
+			
+			if(input.keyboard.down)
+				ofy=speed;
+				
+			if(ofx==0 && ofy==0)
+				return;
+			
+			this.x+=ofx;
+			this.y+=ofy;
+		}
+		
+		return player;
+	}
+	
+	function Bullet(opts)
+	{
+		if(!opts['w'])
+			opts.w=32;
+		if(!opts['h'])
+			opts.h=32;
+		
+		var bullet=GameObj(opts);
+		bullet.speed=5;
+		bullet.makeSprite("bullet");
+		bullet.life=1;
+		bullet.angle=Math.random()*Math.PI*2;
+		bullet.radius=10;
+		if(bullet.owner)
+		{
+			bullet.x=bullet.owner.x;
+			bullet.y=bullet.owner.y;
+			bullet.vx=Math.sin(bullet.owner.angle);
+			bullet.vy=Math.cos(bullet.owner.angle);
+		}
+		
+		bullet.doThink=function()
+		{
+			if(parseInt(this.timeVals.elapsed('maked'))%2==0)
+			{
+				this.x+=this.vx*this.speed;
+				this.y+=this.vy*this.speed;
+				this.angle+=Math.PI/8;
+			}
+		}
+		
+		bullet.onHit=function(en)
+		{
+			this.live=false;
+		}
+		return bullet;
+	}
+	
+	function Missile(opts)
+	{
+		if(!opts['w'])
+			opts.w=32;
+		if(!opts['h'])
+			opts.h=57;
+			
+		var missile=GameObj(opts);
+		if(missile.owner)
+			missile.angle=missile.owner.angle;
+		missile.updateVector();	
+		missile.speed=2;
+		
+		missile.makeSprite("missile");
+		missile.timeVals.smoke=ticker.currentTick-500;
+		missile.angleSpeed=Math.PI/180;
+		missile.radius=10;
+		
+		missile.doThink=function()
+		{
+			this.setFrame(parseInt(this.timeVals.elapsed('maked')/5)%this.frames);
+			this.x+=this.vx*this.speed;
+			this.y+=this.vy*this.speed;
+			
+			if(this.shown && this.target && this.target.live)
+			{
+				var vx_=this.targetX-this.x;
+				var vy_=this.targetY-this.y;
+				this.angle=this.getTurnAngle(vecToAngle(vx_, vy_), missile.angleSpeed);
+				this.updateVector();
+			}
+		}
+		missile.setTarget=function(target)
+		{
+			if(!target)
+				return;
+			this.target=target;
+			this.targetX=this.target.x;
+			this.targetY=this.target.y;
+		}
+		if(opts['target'])
+			missile.setTarget(opts.target);
+			
+		missile.addTimer(function(timer)
+		{
+			smoke=Smoke({owner:this});
+		}, 5);
+		
+		missile.addTimer(function(timer)
+		{
+			if(!this.target || !this.target.live)
+				this.target=findEnemyFor(this);
+			
+			if(!this.target)
+				return;
+				
+			var sprAngle=Math.random()*Math.PI*2;
+			var sprRad=10+Math.random()*60;
+			
+			this.targetX=this.target.x+Math.sin(sprAngle)*sprRad;
+			this.targetY=this.target.y+Math.cos(sprAngle)*sprRad;
+		}, 5);
+		
+		missile.onAfterDraw=function()
+		{
+			/*if(this.target)
+				drawLine([this.x, this.y], [this.target.x, this.target.y]);
+			drawLine([this.x+this.w/2, this.y],[this.x+this.w/2+this.vx*80,this.y+this.vy*80],{color:0x0000ff, width:3});*/
+		}
+		
+		missile.onHit=function(en)
+		{
+			this.live=false;
+			this.life=0;
+			Smoke({x:this.x, y:this.y, sprite:"sfx", lifeTime:20});
+		}
+		return missile;
+	}
+	
+	function Meteor(opts)
+	{
+		if(!opts['w'])
+			opts.w=64;
+		if(!opts['h'])
+			opts.h=64;
+			
+		var meteor=GameObj(opts);
+		if(!opts['sprite'])
+			meteor.makeSprite("meteor");
+		else
+			meteor.makeSprite(opts.sprite);
+		meteor.radius=24;
+		meteor.doThink=function()
+		{
+			this.setFrame(parseInt(this.timeVals.elapsed('maked')/5)%this.frames);
+			if(this.timeVals.elapsed('maked')%2==0)
+			{
+				this.x+=this.vx;
+				this.y+=this.vy;
+			}
+			
+			var lastHitTime=this.timeVals.elapsed('lastHit');
+			if(lastHitTime<40)
+			{
+				if(frameCounter%2==0)
+					this.ofY=-4;
+				else
+					this.ofY=0;
+			}
+			else if(lastHitTime>40)
+			{
+				this.ofX=0;
+				this.ofY=0;
+			}
+			//this.angle+=Math.PI/164*as;
+		}
+		meteor.onHit=function(en)
+		{
+			var lastHitTime=this.timeVals.elapsed('lastHit');
+			if(lastHitTime<10)
+				return;
+			if(en.id==player.id)
+				this.life=-1;
+			else
+				this.life-=10;
+			this._onHit(en);
+			if(!this.live)
+			{
+				this.waitToDie=ticker.currentTick+20;
+				Smoke({x: this.x, y: this.y, scale:0.5, lifeTime: 40, sprite:"boom"});
+			}
+			else
+			{
+				var len=Math.max(0.5, Math.sqrt(this.vx*this.vx+this.vy*this.vy)/1.5);
+				var nv=normVec(this.vx, this.vy);
+				this.vx=nv[0]*len;
+				this.vy=nv[1]*len;
+				
+				var angle=vecToAngle(en.x-this.x, en.y-this.y);
+				var sfxH=30;
+				var sfx=Smoke({x: this.x+Math.sin(angle)*(this.radius*this.scale+sfxH), y: this.y+Math.cos(angle)*(this.radius*this.scale+sfxH), scale:1, maxScale:1, lifeTime: 30, sprite:"sfx2", angle:angle, angleSpeed:0.0000001});
+				sfx.vx=this.vx;
+				sfx.vy=this.vy;
+			}
+		}
+		meteor.angle=Math.random()*Math.PI*2;
+		return meteor;
+	}
+	
+	function Smoke(opts)
+	{
+		if(opts['w'])
+			opts.w=21;
+		if(opts['h'])
+			opts.h=20;
+		var smoke=GameObj(opts);
+		smoke.lifeTime=40;
+		if(opts['lifeTime'])
+			smoke.lifeTime=opts.lifeTime;
+		if(opts['lifeTimeScale'])
+			smoke.lifeTime*=opts.lifeTimeScale;
+			smoke.maxScale=1;
+		if(opts['maxScale'])
+			smoke.maxScale=opts.maxScale;
+		if(!opts['sprite'])
+			smoke.makeSprite("smoke");
+		else
+			smoke.makeSprite(opts.sprite);
+		smoke.alpha=0;
+		if(!opts['angle'])
+			smoke.angle=Math.random()*Math.PI*2;
+		if(!opts['angleSpeed'])
+			smoke.angleSpeed=Math.PI/360;
+		else
+			smoke.angleSpeed=opts.angleSpeed;
+		smoke.sfx=true;
+		smoke.initScale=smoke.scale;
+		smoke.maxAlpha=2;
+		if(opts['maxAlpha'])
+			smoke.maxAlpha=opts.maxAlpha;
+		if(smoke.owner)
+		{
+			var owner=smoke.owner;
+			smoke.x=owner.x-Math.sin(owner.angle)*owner.h/2;
+			smoke.y=owner.y-Math.cos(owner.angle)*owner.h/2;
+		}
+		smoke.doThink=function()
+		{
+			var factor=this.timeLeftToDie()/this.lifeTime;
+			this.setFrame(parseInt(this.frames*factor));
+			this.alpha=factor*this.maxAlpha;
+			this.scale=this.initScale+(1-factor)*(this.maxScale-this.initScale);
+			this.angle+=this.angleSpeed;
+			if(this.timeVals.elapsed('maked')%2==0)
+			{
+				this.x+=this.vx;
+				this.y+=this.vy;
+			}
+		}
+		
+		return smoke;
+	}
+	
+	function Test(opts)
+	{
+		var obj=GameObj(opts);
+		obj.sfx=true;
+		obj.timeOfs=Math.random()*Math.PI*2;
+		obj.doThink=function()
+		{
+			this.updateFrame();
+			var t=this.timeOfs+ticker.currentTick/this.timeScale;
+			this.x=Math.cos(t)*this.rd;
+			this.y=Math.sin(t)*this.rd;
+		}
+		obj.makeSprite("meteor");
+		obj.scale=0.2+Math.random()*0.3;
+		obj.timeScale=10;
+		if(opts['timeScale'])
+			obj.timeScale=opts.timeScale;
+			
+		obj.rd=50;
+		if(opts['rd'])
+			obj.rd=opts.rd;
+		return obj;
+	}
+	
+	var lastWaveTicks=-1000;
+	var ticksPerWave=1000;
+	var objsPerWave=5;
+	var waveIdx=0;
+	
+	function onNextWave()
+	{
+		var n=-1;
+		while(++n<objsPerWave)
+		{
+			var meteor=Meteor({x:32+(Math.random()*game_width-64), y:-Math.random()*game_height});
+			meteor.scale=1+Math.random()*0.2;
+			meteor.vy=2+Math.random()*2;
+			meteor.vx=0.5-Math.random();
+			meteor.sideId=1;
+			
+			meteor.addChild(Test({timeScale:100}))
+			meteor.addChild(Test({timeScale:100}))
+			meteor.addChild(Test({timeScale:100}))
+		}
+		
+		var missile=Missile({x:Math.random()*game_width, y:-32});
+		missile.sideId=1;
+		missile.scale=0.5;
+		/*var n=-1;
+		while(++n<10)
+		{
+			missile=Missile({x:game_width/2+(160-Math.random()*320), y:-32, target:player});
+			missile.speed=1+Math.random()*2;
+			missile.angleSpeed=Math.PI/180+Math.random()*Math.PI/180;
+		}*/
+		
+		waveIdx++;
+	}
+	
+	function test1()
+	{
+		var meteor=Meteor({x:game_width/2-32, y:game_height/2-32});
+		meteor.scale=1;
+		meteor.vy=0;
+		meteor.vx=0;
+		meteor.sideId=1;
+		
+		meteor=Meteor({x:game_width/2-32+128, y:game_height/2-32, sprite:"meteorHq"});
+		meteor.scale=1;
+		meteor.radius=48;
+		meteor.vy=0;
+		meteor.vx=0;
+		meteor.sideId=1;
+	}
+	
+	function updateStat()
+	{
+		var dTicks=ticker.currentTick-lastWaveTicks;
+		var stat=parseInt(Math.max(0, ticksPerWave-dTicks))+" ticks left";
+		stat+=", wave: "+waveIdx;
+		stat+=", objs: "+objs.length;
+		document.getElementById('log').innerHTML=stat;
+	}
+	
+	function checkWave()
+	{
+		var dTicks=ticker.currentTick-lastWaveTicks;
+		if(dTicks<ticksPerWave)
+			return;
+			
+		onNextWave();
+		lastWaveTicks=ticker.currentTick;
+	}
+	
+	function doThink()
+	{
+		checkWave();
+		
+		var n=objs.length;
+		while(--n>=0)
+		{
+			var obj=objs.list[n];
+			obj._doThink();
+			
+			if(obj==player)
+				continue;
+			
+			if(!obj.live)
+			{
+				if(obj.waitToDie-ticker.currentTick>=0)
+					continue;
+					
+				obj.doRemove();
+				continue;
+			}
+			
+			if(!obj.shown)
+			{
+				obj.shown=obj.intersect(0, 0, game_width, game_height);
+				continue;
+			}
+			
+			if(!obj.sfx && obj.live)
+			{
+				var en=findEnemyFor(obj);
+				if(en!=null && obj.distanceTo(en)<0)
+				{
+					if(obj!=player)
+						obj.onHit(en);
+
+					if(en!=player)
+						en.onHit(obj);
+						
+					continue;
+				}
+			}
+			
+			if((!obj.live && !obj.waitToDie) || !obj.intersect(0, 0, game_width, game_height))
+				obj.doRemove();
+		}
+	}
+	
+	function updateSprites()
+	{
+		var n=-1;
+		while(++n<objs.length)
+		{
+			var obj=objs.list[n];
+			obj.updateSprite();
+			obj.onAfterDraw();
+		}
+	}
+	
+    function paint()
+	{
+		frameCounter++;
+		updateStat();
+		doThink();
+		updateSprites();
+    }
+
+	
+    var ticker = rootScene.Ticker(15, paint);
+
+   
+	
+	var animMgr=AnimMgr();
+	var player=null;
+	animMgr.load(function()
+	{
+		player=Player();
+		//test1();
+		onNextWave();
+		ticker.run();
+	});
+};
+</script>
+</html> 
