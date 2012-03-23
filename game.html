@@ -18,9 +18,9 @@ body
 <body>
 <span id='log'></span>
 </body>
-<script src="batiste-sprite.js-93b940d/vendors/touch.js"></script>
-<script src="batiste-sprite.js-93b940d/sprite.js"></script>
-<script src="batiste-sprite.js-93b940d/lib/collision.js"></script>
+<script src="vendors/touch.js"></script>
+<script src="sprite.js"></script>
+<script src="lib/collision.js"></script>
 <script>
 
 window.onload = function()
@@ -65,7 +65,6 @@ window.onload = function()
 			graph["smoke"]=		{};
 			graph["spaceShip"]=	{};
 			graph["meteor"]=	{w:64, h:64};
-			graph["meteorHq"]=	{w:128, h:128};
 			graph["boom"]=		{w:96, h:96};
 			graph["sfx"]=		{w:67, h:64};
 			graph["sfx2"]=		{w:33, h:64};
@@ -874,7 +873,7 @@ window.onload = function()
 		meteor.vx=0;
 		meteor.sideId=1;
 		
-		meteor=Meteor({x:game_width/2-32+128, y:game_height/2-32, sprite:"meteorHq"});
+		meteor=Meteor({x:game_width/2-32+128, y:game_height/2-32, sprite:"meteor"});
 		meteor.scale=1;
 		meteor.radius=48;
 		meteor.vy=0;
