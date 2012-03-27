@@ -64,7 +64,9 @@ window.onload = function()
 			graph["missile"]=	{w:32, h:56};
 			graph["smoke"]=		{};
 			graph["spaceShip"]=	{};
+			graph["spaceShipMask"]=	{};
 			graph["meteor"]=	{w:64, h:64};
+			graph["meteorMask"]={w:64, h:64};
 			graph["boom"]=		{w:96, h:96};
 			graph["sfx"]=		{w:67, h:64};
 			graph["sfx2"]=		{w:33, h:64};
@@ -213,6 +215,9 @@ window.onload = function()
 	}
 	function findEnemyFor(obj, first)
 	{
+		if(obj.class=="sfx")
+			return null;
+			
 		var minDist=9999;
 		var found=null;
 		var n=-1;
@@ -238,6 +243,23 @@ window.onload = function()
 		return found;
 	}
 	
+	function getAll(fn, max)
+	{
+		var res=[];
+		var n=-1;
+		while(++n<objs.length)
+		{
+			var obj=objs.list[n];
+			if(fn(obj))
+				res.push(obj);
+			if(res.length>=max)
+				break;
+		}
+		return res;
+	}
+	
+	//obj.class is one of ["bullet", "object", "sfx"]
+	//коллизии не провер€ютс€ между (bullet и bullet), (sfx и *)
 	function GameObj(opts)
 	{
 		var x_=0;
@@ -255,6 +277,8 @@ window.onload = function()
 			h_=opts.h;
 		
 		var obj={x:x_, y:y_, w:w_, h:h_, scale:1, angle:0, sprite:null, vx: 0, vy:0, shown: false, alpha:1};
+		obj.class="object";
+		obj.hasMask=opts.hasMask;
 		obj.owner=opts['owner'];
 		if(opts['scale'])
 			obj.scale=opts.scale;
@@ -268,6 +292,8 @@ window.onload = function()
 		obj.id=idCounter++;
 		obj.ofX=0;
 		obj.ofY=0;
+		obj.shakeY=0;
+		obj.shakeX=0;
 		obj.radius=Math.min(obj.w/2, obj.h/2);
 		obj.childs=[];
 		obj.parent=null;
@@ -276,8 +302,6 @@ window.onload = function()
 		if(obj.owner)
 			obj.sideId=obj.owner.sideId;
 			
-		obj.sfx=false;
-		
 		obj.timeVals.elapsed=function(val)
 		{
 			return ticker.currentTick-this[val];
@@ -303,7 +327,17 @@ window.onload = function()
 				yOrig=ap[1];
 			}
 			
-			this.sprite.position(xOrig+(this.x-this.sprite.w/2+this.ofX), yOrig+(this.y-this.sprite.h/2+this.ofY));
+			var pos=[xOrig+(this.x-this.sprite.w/2+this.ofX+this.shakeX), yOrig+(this.y-this.sprite.h/2+this.ofY+this.shakeY)];
+			
+			if(this.hasMask && this.alpha<1)
+			{
+				this.spriteMask.position(pos[0], pos[1]);
+				this.spriteMask.setAngle(Math.PI*3-this.angle);
+				this.spriteMask.scale(this.scale);
+				this.spriteMask.setOpacity(1);
+				this.spriteMask.update();
+			}
+			this.sprite.position(pos[0], pos[1]);
 			this.sprite.setAngle(Math.PI*3-this.angle);
 			this.sprite.scale(this.scale);
 			this.sprite.setOpacity(this.alpha);
@@ -335,7 +369,22 @@ window.onload = function()
 		
 		obj.isEnemyFor=function(en)
 		{
+			if(en.class=="bullet" && this.class=="bullet")
+				return false;
+			if(en.class=="sfx" || this.class=="sfx")
+				return false;
 			return this.sideId!=en.sideId;
+		}
+		
+		obj.shake=function(time)
+		{
+			this.timeVals.shakeTo=ticker.currentTick+time;
+		}
+		
+		obj.flash=function(time)
+		{
+			this.flashTo=time;
+			this.timeVals.flashTo=ticker.currentTick+time;
 		}
 		
 		obj.makeSprite=function(img, scene, layer)
@@ -348,17 +397,27 @@ window.onload = function()
 			
 			this.anim=animMgr.get(img);
 			this.sprite=scene.Sprite(this.anim.src, layer);
+			if(this.hasMask)
+				this.spriteMask=scene.Sprite(this.anim.src.replace(".png","Mask.png"), layer);
 			
 			var f=this.anim.frameInfo(0);
 			this.frames=f.num;
 			this.sprite.size(f.w, f.h);
+			if(this.spriteMask)
+				this.spriteMask.size(f.w, f.h);
 			this.setFrame(0);
 		}
+		
 		obj.setFrame=function(n)
 		{
 			var f=this.anim.frameInfo(Math.min(n, this.frames));
 			this.sprite.setXOffset(f.x);
 			this.sprite.setYOffset(f.y);
+			if(this.spriteMask)
+			{
+				this.spriteMask.setXOffset(f.x);
+				this.spriteMask.setYOffset(f.y);
+			}
 			return this;
 		}
 		obj.updateVector=function()
@@ -389,7 +448,24 @@ window.onload = function()
 				if(timer['stop'])
 					this.timers.splice(this.timers.indexOf(timer),1);
 			}
-				
+			
+			
+			//shake
+			if(this.timeVals.elapsed("shakeTo")<=0)
+			{
+				if(frameCounter%2==0)
+					this.shakeY=-2;
+				else
+					this.shakeY=0;
+			}
+			
+			//hit
+			var flashTo=this.timeVals.elapsed("flashTo");
+			if(this.hasMask && flashTo<=0)
+				this.alpha=Math.abs(flashTo)/this.flashTo;
+			else
+				this.alpha=1;
+			
 			if(this.live)
 				this.doThink();
 				
@@ -431,10 +507,10 @@ window.onload = function()
 		
 		obj.intersect=function(x_, y_, w_, h_)
 		{
-			var x2 = Math.min(this.x+this.w, x_+w_);
-			var y2 = Math.min(this.y+this.h, y_+h_);
-			x_ = Math.max(this.x, x_);
-			y_ = Math.max(this.y, y_);
+			var x2 = Math.min(this.x+this.w/2, x_+w_);
+			var y2 = Math.min(this.y+this.h/2, y_+h_);
+			x_ = Math.max(this.x-this.w/2, x_);
+			y_ = Math.max(this.y-this.h/2, y_);
 			
 			w_=x2-x_+1;
 			h_=y2-y_+1;
@@ -443,12 +519,17 @@ window.onload = function()
 		
 		obj.getTurnAngle=function(newAngle, turnSpeed)
 		{
+			while(this.angle<0)
+				this.angle+=Math.PI*2;
+			while(this.angle>Math.PI*2)
+				this.angle-=Math.PI*2;
+				
 			var na=newAngle-this.angle;
 			if(na<0)
 				na+=Math.PI*2;
 			else if(na>Math.PI*2)
 				na-=Math.PI*2;
-			
+				
 			if(na>Math.PI)
 				return this.angle-turnSpeed;
 			return this.angle+turnSpeed;
@@ -512,6 +593,7 @@ window.onload = function()
 			opts.h=sz;
 			
 		var player=GameObj(opts);
+		player.hasMask=true;
 		player.angle=degAngle(180);
 		player.ticksPerFire=30;
 		player.lastFireTick=0;
@@ -562,6 +644,12 @@ window.onload = function()
 			this.y+=ofy;
 		}
 		
+		player.onHit=function(en)
+		{
+			this.shake(40);
+			this.flash(10);
+		}
+		
 		return player;
 	}
 	
@@ -573,6 +661,7 @@ window.onload = function()
 			opts.h=32;
 		
 		var bullet=GameObj(opts);
+		bullet.class="bullet";
 		bullet.speed=5;
 		bullet.makeSprite("bullet");
 		bullet.life=1;
@@ -631,7 +720,8 @@ window.onload = function()
 			{
 				var vx_=this.targetX-this.x;
 				var vy_=this.targetY-this.y;
-				this.angle=this.getTurnAngle(vecToAngle(vx_, vy_), missile.angleSpeed);
+				var va=vecToAngle(vx_, vy_);
+				this.angle=this.getTurnAngle(va, missile.angleSpeed);
 				this.updateVector();
 			}
 		}
@@ -648,14 +738,14 @@ window.onload = function()
 			
 		missile.addTimer(function(timer)
 		{
-			smoke=Smoke({owner:this});
+			smoke=Smoke({owner:this, maxScale: 3});
 		}, 5);
 		
 		missile.addTimer(function(timer)
 		{
 			if(!this.target || !this.target.live)
 				this.target=findEnemyFor(this);
-			
+
 			if(!this.target)
 				return;
 				
@@ -669,8 +759,7 @@ window.onload = function()
 		missile.onAfterDraw=function()
 		{
 			/*if(this.target)
-				drawLine([this.x, this.y], [this.target.x, this.target.y]);
-			drawLine([this.x+this.w/2, this.y],[this.x+this.w/2+this.vx*80,this.y+this.vy*80],{color:0x0000ff, width:3});*/
+				drawCircle([this.targetX, this.targetY], 20);*/
 		}
 		
 		missile.onHit=function(en)
@@ -689,6 +778,7 @@ window.onload = function()
 		if(!opts['h'])
 			opts.h=64;
 			
+			opts.hasMask=true;
 		var meteor=GameObj(opts);
 		if(!opts['sprite'])
 			meteor.makeSprite("meteor");
@@ -705,29 +795,26 @@ window.onload = function()
 			}
 			
 			var lastHitTime=this.timeVals.elapsed('lastHit');
-			if(lastHitTime<40)
+			if(lastHitTime<20)
 			{
-				if(frameCounter%2==0)
-					this.ofY=-4;
-				else
-					this.ofY=0;
+				this.alpha=lastHitTime/10;
 			}
-			else if(lastHitTime>40)
+			else if(lastHitTime>20)
 			{
-				this.ofX=0;
-				this.ofY=0;
+				this.alpha=1;
 			}
 			//this.angle+=Math.PI/164*as;
 		}
 		meteor.onHit=function(en)
 		{
 			var lastHitTime=this.timeVals.elapsed('lastHit');
-			if(lastHitTime<10)
+			if(lastHitTime<20)
 				return;
 			if(en.id==player.id)
 				this.life=-1;
 			else
 				this.life-=10;
+			
 			this._onHit(en);
 			if(!this.live)
 			{
@@ -736,6 +823,7 @@ window.onload = function()
 			}
 			else
 			{
+				this.shake(20);
 				var len=Math.max(0.5, Math.sqrt(this.vx*this.vx+this.vy*this.vy)/1.5);
 				var nv=normVec(this.vx, this.vy);
 				this.vx=nv[0]*len;
@@ -759,6 +847,7 @@ window.onload = function()
 		if(opts['h'])
 			opts.h=20;
 		var smoke=GameObj(opts);
+		smoke.class="sfx";
 		smoke.lifeTime=40;
 		if(opts['lifeTime'])
 			smoke.lifeTime=opts.lifeTime;
@@ -778,7 +867,6 @@ window.onload = function()
 			smoke.angleSpeed=Math.PI/360;
 		else
 			smoke.angleSpeed=opts.angleSpeed;
-		smoke.sfx=true;
 		smoke.initScale=smoke.scale;
 		smoke.maxAlpha=2;
 		if(opts['maxAlpha'])
@@ -806,29 +894,6 @@ window.onload = function()
 		return smoke;
 	}
 	
-	function Test(opts)
-	{
-		var obj=GameObj(opts);
-		obj.sfx=true;
-		obj.timeOfs=Math.random()*Math.PI*2;
-		obj.doThink=function()
-		{
-			this.updateFrame();
-			var t=this.timeOfs+ticker.currentTick/this.timeScale;
-			this.x=Math.cos(t)*this.rd;
-			this.y=Math.sin(t)*this.rd;
-		}
-		obj.makeSprite("meteor");
-		obj.scale=0.2+Math.random()*0.3;
-		obj.timeScale=10;
-		if(opts['timeScale'])
-			obj.timeScale=opts.timeScale;
-			
-		obj.rd=50;
-		if(opts['rd'])
-			obj.rd=opts.rd;
-		return obj;
-	}
 	
 	var lastWaveTicks=-1000;
 	var ticksPerWave=1000;
@@ -846,9 +911,9 @@ window.onload = function()
 			meteor.vx=0.5-Math.random();
 			meteor.sideId=1;
 			
+			/*meteor.addChild(Test({timeScale:100}))
 			meteor.addChild(Test({timeScale:100}))
-			meteor.addChild(Test({timeScale:100}))
-			meteor.addChild(Test({timeScale:100}))
+			meteor.addChild(Test({timeScale:100}))*/
 		}
 		
 		var missile=Missile({x:Math.random()*game_width, y:-32});
@@ -895,7 +960,11 @@ window.onload = function()
 		var dTicks=ticker.currentTick-lastWaveTicks;
 		if(dTicks<ticksPerWave)
 			return;
-			
+		
+		var enemys=getAll(function(en){ return en.sideId==1; },1);
+		if(enemys.length!=0)
+			return;
+		
 		onNextWave();
 		lastWaveTicks=ticker.currentTick;
 	}
@@ -925,19 +994,18 @@ window.onload = function()
 			if(!obj.shown)
 			{
 				obj.shown=obj.intersect(0, 0, game_width, game_height);
+				if(obj.y-obj.h*obj.scale>game_height)
+					obj.doRemove();
 				continue;
 			}
 			
-			if(!obj.sfx && obj.live)
+			if(obj.live)
 			{
 				var en=findEnemyFor(obj);
 				if(en!=null && obj.distanceTo(en)<0)
 				{
-					if(obj!=player)
-						obj.onHit(en);
-
-					if(en!=player)
-						en.onHit(obj);
+					obj.onHit(en);
+					en.onHit(obj);
 						
 					continue;
 				}
