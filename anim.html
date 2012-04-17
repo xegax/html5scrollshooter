@@ -42,6 +42,15 @@ body
 </body>
 <script src="sprite.js"></script>
 <script src="jquery.min.js"></script>
+<script src="json.js"></script>
+<script src="core.js"></script>
+<script src="math.js"></script>
+<script src="bone.js"></script>
+<script src="animCtrlr.js"></script>
+<script src="spriteHelpers.js"></script>
+<script src="GameObj.js"></script>
+<script src="AnimMgr.js"></script>
+<script src="appearance.js"></script>
 <script>
 
 var keys=new sjs.List();
@@ -57,6 +66,24 @@ newSeq.keys.add(newKey);
 
 var selBone=null;
 var lastSelBone=-1;
+var keyStates=[];
+
+var animCtrlr=new AnimCtrlr();
+var objs = new sjs.List();
+var idCounter= 0;
+
+function isKeyDown(key)
+{
+	if(key>=keyStates.length)
+		return false;
+	return keyStates[key]==1;
+}
+
+function getTimer()
+{
+	return new Date().getTime();
+}
+
 setInterval(function()
 {
 	if(lastSelBone!=selBone)
@@ -80,7 +107,7 @@ setInterval(function()
 		return;
 		
 	selBone.sprite.alpha=0.5;
-}, 100);
+}, 200);
 
 function updateBoneImg()
 {
@@ -148,6 +175,8 @@ function saveToSel(data)
 	}
 	else
 		selKey.data=data;
+		
+	saveValue("animData", keys.list);
 }
 
 function removeSelKey()
@@ -206,17 +235,36 @@ function play(run)
 	{
 		if(!playing)
 			return;
-		animIdx=(animIdx+1)%(keys.list.length-1);
+		/*animIdx=(animIdx+1)%(keys.list.length-1);
 		selKey=keys.list[animIdx];
 		updateKeys();
-		body.setState(selKey.data);
-	},200);
+		animCtrlr.animate(body, selKey.data, 200);*/
+		body.setFrame(getTimer()/500, keys.list);
+	},10);
 }
 
 updateKeys();
 updateSeq();
 
+function loadData(data)
+{
+	keys.list=data;
+	keys.list[keys.list.length-1]=newKey;
+	if(keys.list.length>1)
+		animCtrlr.animate(body, keys.list[keys.list.length-2].data, 0.01);
+	updateKeys();
+	updateSeq();
+}
+
+
+loadValue("animData", function(data)
+{
+	loadData(data);
+});
+
 var body=null;
+var rootScene=null;
+var animMgr=null;
 window.onload = function()
 {
 	$("#keyPanel").click(function(e)
@@ -229,19 +277,21 @@ window.onload = function()
 			selKey=newSel;
 			updateKeys();
 			if(selKey!=newKey)
-				body.setState(selKey.data);
+			{
+				//body.setState(selKey.data);
+				animCtrlr.animate(body, selKey.data, 300);
+			}
 		}
 	});
 	
     var game_height = 512;
     var game_width = 512;
-    var rootScene = sjs.Scene({w:game_width, h:game_height, useCanvas:true, autoPause:false});
+    rootScene = sjs.Scene({w:game_width, h:game_height, useCanvas:true, autoPause:false});
 	var frameCounter=0;
 	$(rootScene.dom).css("margin-left","50px");
 	$(rootScene.dom).css("margin-top","50px");
     //var input  = rootScene.Input();
-	var objs=sjs.List();
-	var idCounter=0;
+
 
 	var captured=false;
 	var lastHitObj=null;
@@ -289,203 +339,24 @@ window.onload = function()
 			lastHitObj.setOffset(offs.x, offs.y);
 	});
 	
-	
-	//1. задан fn = 1 - w и h вычисляются
-	//2. задан w и h - rn, cn, fn вычисляется
-	//3. не задан src - src = img/name.png
-	function AnimMgr()
+	$(document.body).keydown(function(e)
 	{
-		var mgr={};
-		AnimMgrGet=function()
-		{
-			return mgr;
-		}
-		
-		mgr.graph=[];
-		mgr.get=function(name)
-		{
-			var ref=this.graph[name];
-			if(ref && !ref.frameInfo)
-				ref.frameInfo=function(n)
-				{
-					n=Math.min(n,this.fn);
-					var rn=parseInt(n/this.cn);
-					var cn=n-rn*this.cn;
-					return {x: cn*this.w, y:rn*this.h, w:this.w, h:this.h, num:this.fn};
-				}
-			return ref;
-		}
-		
-		mgr.load=function(callback)
-		{
-			var graph=mgr.graph;
+		var call=lastHitObj && (e.keyCode>=keyStates.length || keyStates[e.keyCode]==0);
+
+		keyStates[e.keyCode]=1;
+		if(call)
+			lastHitObj.onKeyDown(e.keyCode);
+	});
+	
+	$(document.body).keyup(function(e)
+	{
+		var call=lastHitObj && (e.keyCode>=keyStates.length || keyStates[e.keyCode]==1);
 			
-			graph["bullet"]=	{};
-			graph["missile"]=	{w:32, h:56};
-			graph["smoke"]=		{};
-			graph["spaceShip"]=	{};
-			graph["meteor"]=	{w:64, h:64};
-			graph["boom"]=		{w:96, h:96};
-			graph["sfx"]=		{w:67, h:64};
-			graph["sfx2"]=		{w:33, h:64};
-			graph["hand"]=		{};
-			graph["hand-middle"]={};
-			graph["palm"]=		{};
-			graph["body"]=		{};
-			graph["head"]=		{};
-			graph["head-prof"]=	{};
-			
-			var imgs=[];
-			for(var name in graph)
-			{
-				var g=graph[name];
-				if(!g['src'])
-					g.src="img/"+name+".png";
-				imgs.push(g.src);
-				if(!g['fn'] && !g['rn'] && !g['cn'] && !g['w'] && !g['h'])
-				{
-					g.fn=1;
-					g.rc=1;
-					g.cn=1;
-				}
-			}
-			
-			rootScene.loadImages(imgs, function()
-			{
-				for(var name in graph)
-				{
-					var g=graph[name];
-					var spr=rootScene.Sprite(g.src);
-					if(g['fn']==1 && !g['w'] && !g['h'])
-					{
-						g.w=spr.w;
-						g.h=spr.h;
-					}
-					else if(!g['fn'] && g['w'] && g['h'])
-					{
-						g.cn=spr.w/g.w;
-						g.rn=spr.h/g.h;
-						g.fn=g.cn*g.rn;
-					}
-					else if(g['fn'] && !g['w'] && !g['h'])
-					{
-						if(spr.w>spr.h)
-						{
-							g.rn=1;
-							g.cn=g.fn;
-							g.w=spr.w/g.fn
-							g.h=spr.h;
-						}
-						else
-						{
-							g.cn=1;
-							g.rn=g.fn;
-							g.h=spr.h/g.fn
-							g.w=spr.w;
-						}
-					}
-					else if(g['rn'] && g['cn'] && !g['w'] && !g['h'])
-					{
-						g.w=spr.w/g.cn;
-						g.h=spr.h/g.rn;
-						
-						if(!g['fn'])
-							g.fn=g.cn*g.rn;
-						g.fn=Math.min(g.cn*g.rn, g.fn);
-					}
-					
-					spr.remove();
-				}
-				
-				if(callback)
-					callback();
-			});
-		}
-		
-		return mgr;
-	}
+		keyStates[e.keyCode]=0;
+		if(call)
+			lastHitObj.onKeyUp(e.keyCode);
+	});
 	
-	function degAngle(a)
-	{
-		return a*Math.PI/180;
-	}
-	
-	function vecToAngle(vx, vy)
-	{
-		var len=Math.sqrt(vx*vx+vy*vy);
-		if(len>1)
-		{
-			vx/=len;
-			vy/=len;
-		}
-		if(vx==0)
-			vx=0.000001;
-		var a=Math.atan(vy/vx)+Math.PI/2;
-		a=Math.PI*2-a;
-		if(vx>0)
-			a+=Math.PI;
-			
-		while(a<0)
-			a+=Math.PI*2;
-		while(a>Math.PI*2)
-			a-=Math.PI*2;
-		return a;
-	}
-	
-	function normVec(vx, vy)
-	{
-		var len=Math.sqrt(vx*vx+vy*vy);
-		return [vx/len, vy/len];
-	}
-	
-	function lenBetween(pt1, pt2)
-	{
-		var x=pt1.x-pt2.x;
-		var y=pt1.y-pt2.y;
-		return Math.sqrt(x*x+y*y);
-	}
-	
-	function animPt(src, dst, time)
-	{
-		var vec=[dst[0]-src[0], dst[1]-src[1]];
-		var len=Math.sqrt(vec[0]*vec[0]+vec[1]*vec[1]);
-		if(vec[0]==0 && vec[1]==0)
-			return [src[0], src[1]];
-		vec=normVec(vec[0], vec[1]);
-		return [src[0]+vec[0]*len*time, src[1]+vec[1]*len*time];
-	}
-	
-	function drawLine(from, to, opts)
-	{
-		var width=1;
-		var color='#000000';
-		var ctx=rootScene.layers.default.ctx;
-		
-		ctx.save();
-		ctx.lineWidth = width;
-		ctx.strokeStyle=color;
-		ctx.beginPath();
-		ctx.moveTo(from[0],from[1]);
-		ctx.lineTo(to[0], to[1]);
-		ctx.stroke();
-		ctx.restore();
-	}
-	
-	function drawCircle(center, radius, opts)
-	{
-		var width=1;
-		var color='#000000';
-		var ctx=rootScene.layers.default.ctx;
-		
-		ctx.save();
-		ctx.lineWidth = width;
-		ctx.strokeStyle=color;
-		
-		ctx.beginPath();
-		ctx.arc(center[0],center[1],radius,0,Math.PI*2,true);
-		ctx.stroke();
-		ctx.restore();
-	}
 	
 	function hitTest(pt)
 	{
@@ -503,389 +374,6 @@ window.onload = function()
 		return null;
 	}
 	
-	function merge(dst, src)
-	{
-		for(var n in src)
-			dst[n]=src[n];
-	}
-	
-	function DragObj(opts)
-	{
-		var obj={x:0, y:0, ofX:0, ofY:0, target:null, start:true};
-		merge(obj, opts);
-		obj.setOffset=function(ofX, ofY)
-		{
-			this.ofX=ofX;
-			this.ofY=ofY;
-			if(this.start)
-			{
-				this.target.x=this.x+ofX;
-				this.target.y=this.y+ofY;
-				this.target.updatePos();
-			}
-			else
-			{
-				this.target.xe=this.x+ofX;
-				this.target.ye=this.y+ofY;
-				this.target.updateVec();
-			}
-		}
-		selBone=obj.target;
-		return obj;
-	}
-	
-	function Bone(opts)
-	{
-		var bone={x: 0, y: 0, vl: 83, vx: 0, vy: 1, sprite:new GameObj(), parent:null, childs:[], imgId:"hand", ofY:14, pvx:0, pvy:0, imgAngle:0, animTime:1};
-		merge(bone, opts);
- 		bone.sprite.makeSprite(bone.imgId);
-		
-		var vn=normVec(bone.vx, bone.vy);
-		bone.vx=vn[0];
-		bone.vy=vn[1];
-		bone.xe=bone.x+bone.vx*bone.vl;
-		bone.ye=bone.y+bone.vy*bone.vl;
-		bone.updateSprite=function()
-		{
-			this.sprite.makeSprite(this.imgId);
-		}
-		bone.render=function()
-		{
-			var rad=20;
-			drawCircle([this.x, this.y], rad);
-			drawCircle([this.xe, this.ye], rad);
-			drawLine([this.x, this.y], [this.xe, this.ye]);
-			
-			drawLine([this.xe-rad/2, this.ye], [this.xe+rad/2,this.ye]);
-			drawLine([this.xe, this.ye-rad/2], [this.xe,this.ye+rad/2]);
-			
-			this.sprite.x=this.x;
-			this.sprite.y=this.y;
-			this.sprite.ofX=this.sprite.sprite.w/2;
-			this.sprite.ofY=this.sprite.sprite.h/2;
-			this.sprite.angle=Math.PI*2-vecToAngle(this.vx, this.vy);
-			
-			var sz=[this.sprite.sprite.w/2, this.sprite.sprite.h/2];
-			var from=[this.x+sz[0], this.y+sz[1]];
-			var sin=Math.sin(this.sprite.angle);
-			var cos=Math.cos(this.sprite.angle);
-			
-			sz[1]-=this.ofY;
-			var to=[from[0]+sin*sz[1], from[1]-cos*sz[1]];
-			this.sprite.x-=to[0]-this.x;
-			this.sprite.y-=to[1]-this.y;
-			this.sprite.angle+=this.imgAngle;
-			this.sprite.render();
-			
-			var n=-1;
-			while(++n<this.childs.length)
-				this.childs[n].render();
-		}
-		
-		bone.updateVec=function()
-		{
-			var vec={x: this.xe-this.x, y: this.ye-this.y};
-			vec=normVec(vec.x, vec.y);
-			this.vx=vec[0];
-			this.vy=vec[1];
-			this.xe=this.x+this.vx*this.vl;
-			this.ye=this.y+this.vy*this.vl;
-			
-			var n=-1;
-			while(++n<this.childs.length)
-			{
-				var child=this.childs[n];
-				child.x=this.xe+this.vx*child.pvx-this.vy*child.pvy;
-				child.y=this.ye+this.vy*child.pvx+this.vx*child.pvy;
-				child.updatePos();
-			}
-		}
-		
-		bone.updatePos=function()
-		{
-			var vn=normVec(this.vx, this.vy);
-			this.xe=this.x+vn[0]*this.vl;
-			this.ye=this.y+vn[1]*this.vl;
-			
-			var n=-1;
-			while(++n<this.childs.length)
-			{
-				var child=this.childs[n];
-				child.x=this.xe+this.vx*child.pvx-this.vy*child.pvy;
-				child.y=this.ye+this.vy*child.pvx+this.vx*child.pvy;
-				child.updatePos();
-			}
-		}
-		
-		bone.hitTest=function(pt)
-		{
-			var rad=20;
-			var l1=lenBetween(pt, {x:0, y:0});
-			if(l1<rad)
-			{
-				if(this.parent)
-					return null;
-					
-				return new DragObj({target:this, x:this.x, y:this.y});
-			}
-			
-			var l2=lenBetween(pt, {x:this.xe-this.x, y:this.ye-this.y});
-			if(l2<rad)
-				return new DragObj({target:this, start:false, x:this.xe, y:this.ye});
-				
-			var n=-1;
-			while(++n<this.childs.length)
-			{
-				var child=this.childs[n];
-				var localPt={x: (pt.x+this.x)-child.x, y: (pt.y+this.y)-child.y};
-				var child=child.hitTest(localPt);
-				if(!child)
-					continue;
-				return child;
-			}
-			return null;
-		}
-		
-		bone.addChild=function(child)
-		{
-			this.childs.push(child);
-			objs.remove(child);
-			
-			child.x=this.xe;
-			child.y=this.ye;
-			child.updatePos();
-			child.parent=this;
-			
-			return this;
-		}
-		
-		/*
-			[
-				[state],
-				[
-					[child state1],
-					...
-					[child stateN]
-				]
-			]
-		*/
-		bone.getState=function()
-		{
-			var state=[];
-			state.push([this.x, this.y, this.xe, this.ye, this.imgId]);
-			
-			var childsStates=[];
-			var n=-1;
-			while(++n<this.childs.length)
-			{
-				var child=this.childs[n];
-				childsStates.push(child.getState());
-			}
-			state.push(childsStates);
-			
-			return state;
-		}
-		
-		bone.animTo=function(time)
-		{
-			var st=this.newState[0];
-			if(st.length>1)
-			{
-				var n=-1;
-				while(++n<this.childs.length)
-					this.childs[n].animTo(time);
-			}
-			
-			var pos=animPt([this.x, this.y], [st[0], st[1]], time);
-			this.x=pos[0];
-			this.y=pos[1];
-			
-			var ep=animPt([this.xe, this.ye], [st[2], st[3]], time);
-			this.vx=ep[0]-pos[0];
-			this.vy=ep[1]-pos[1];
-			this.updatePos();
-			this.updateVec();
-		}
-		
-		bone.setState=function(stData)
-		{
-			this.newState=stData;
-			if(stData[0][4]!=this.imgId)
-			{
-				this.imgId=stData[0][4];
-				this.updateSprite();
-			}
-			
-			var n=-1;
-			if(stData.length>1)
-				while(++n<this.childs.length)
-					this.childs[n].setState(stData[1][n]);
-			
-			if(this.parent!=null)
-				return;
-				
-			var bone=this;
-			if(this.animTime>=1)
-				this.animTimerId=setInterval(function()
-				{
-					bone.animTo(Math.min(1, bone.animTime+=0.01));
-					if(bone.animTime>=1)
-					{
-						clearInterval(bone.animTimerId);
-						bone.animTime=1;
-					}
-				}, 10);
-			this.animTime=0;
-		}
-		
-		objs.add(bone);
-		return bone;
-	}
-	
-	function GameObj(opts)
-	{
-		var obj={x:0, y:0, w:32, h:32, scale:1, angle:0, sprite:null, vx: 0, vy:0, shown: false, alpha:1};
-		merge(obj, opts)
-
-		obj.live=true;
-		obj.id=idCounter++;
-		obj.ofX=0;
-		obj.ofY=0;
-		obj.childs=[];
-		obj.parent=null;
-		
-		obj.render=function()
-		{
-			if(this.sprite==null)
-				return;
-			
-			var xOrig=0;
-			var yOrig=0;
-			if(this.parent!=null)
-			{
-				var ap=this.parent.getAbsPos();
-				xOrig=ap[0];
-				yOrig=ap[1];
-			}
-			
-			this.sprite.position(xOrig+(this.x-this.sprite.w/2+this.ofX), yOrig+(this.y-this.sprite.h/2+this.ofY));
-			this.sprite.setAngle(/*Math.PI*3-*/this.angle);
-			this.sprite.scale(this.scale);
-			this.sprite.setOpacity(this.alpha);
-			this.sprite.update();
-			
-			
-			drawCircle({x:this.x, y:this.y}, 10);
-			var n=-1;
-			while(++n<this.childs.length)
-			{
-				var child=this.childs[n];
-				child.updateSprite();
-				child.alpha=this.alpha;
-			}
-		}
-		
-	
-		obj.makeSprite=function(img, scene, layer)
-		{
-			if(!scene)
-				scene=rootScene;
-				
-			if(this.sprite!=null)
-				this.sprite.remove();
-			
-			this.anim=animMgr.get(img);
-			this.sprite=scene.Sprite(this.anim.src, layer);
-			
-			var f=this.anim.frameInfo(0);
-			this.frames=f.num;
-			this.sprite.size(f.w, f.h);
-		}
-		obj.updateVector=function()
-		{
-			this.vx=Math.sin(this.angle);
-			this.vy=Math.cos(this.angle);
-		}
-		
-		obj.doRemove=function(time)
-		{
-			this.live=false;
-			
-			this.sprite.remove();
-			objs.remove(this);
-		}
-		
-		obj.intersect=function(x_, y_, w_, h_)
-		{
-			var x2 = Math.min(this.x+this.w, x_+w_);
-			var y2 = Math.min(this.y+this.h, y_+h_);
-			x_ = Math.max(this.x, x_);
-			y_ = Math.max(this.y, y_);
-			
-			w_=x2-x_+1;
-			h_=y2-y_+1;
-			return w_>0 && h_>0;
-		}
-		
-		obj.getTurnAngle=function(newAngle, turnSpeed)
-		{
-			var na=newAngle-this.angle;
-			if(na<0)
-				na+=Math.PI*2;
-			else if(na>Math.PI*2)
-				na-=Math.PI*2;
-			
-			if(na>Math.PI)
-				return this.angle-turnSpeed;
-			return this.angle+turnSpeed;
-		}
-		
-		obj.addChild=function(child)
-		{
-			this.childs.push(child);
-			child.parent=this;
-			objs.remove(child);
-			return child;
-		}
-		
-		obj.getAbsPos=function()
-		{
-			var pos=[this.x+this.ofX, this.y+this.ofY];
-			
-			var p=this.parent;
-			while(p!=null)
-			{
-				pos[0]+=p.x+p.ofX;
-				pos[1]+=p.y+p.ofY;
-				p=p.parent;
-			}
-			
-			return pos;
-		}
-		
-		obj.hitTest=function(pt)
-		{
-			return null;
-			n=-1;
-			while(++n<this.childs.length)
-			{
-				var child=this.childs[n];
-				var localPt={x: pt.x-child.x, y: pt.y-child.y};
-				child=child.hitTest(localPt);
-				if(!child)
-					continue;
-				return child;
-			}
-			
-			var hit=Math.abs(pt.x)<this.w/2 && Math.abs(pt.y)<this.h/2;
-			if(hit)
-				return this;
-			return null;
-		}
-		
-		objs.add(obj);
-		return obj;
-	}
 	
 	function render()
 	{
@@ -899,8 +387,25 @@ window.onload = function()
 	}
 	
     var ticker = rootScene.Ticker(15, render);
+	animCtrlr = new AnimCtrlr();
 
-	var animMgr=AnimMgr();
+	animMgr=new AnimMgr();
+	animMgr.add("bullet", 		{});
+	animMgr.add("missile",		{w:32, h:56});
+	animMgr.add("smoke",		{});
+	animMgr.add("spaceShip",	{});
+	animMgr.add("meteor",		{w:64, h:64});
+	animMgr.add("boom",			{w:96, h:96});
+	animMgr.add("sfx",			{w:67, h:64});
+	animMgr.add("sfx2",			{w:33, h:64});
+	animMgr.add("hand",			{});
+	animMgr.add("hand-middle",	{});
+	animMgr.add("palm",			{});
+	animMgr.add("body",			{});
+	animMgr.add("head",			{});
+	animMgr.add("head-prof",	{});
+	animMgr.add("jackie-face",	{});
+		
 	animMgr.load(function()
 	{
 		updateBoneImg();
@@ -910,11 +415,21 @@ window.onload = function()
 		var hand2=new Bone({x: game_width/2+60, y:game_height/2, imgId:"hand", pvx:-170, pvy:-80});
 		hand2.addChild(new Bone({imgId:"hand-middle", vl:70}).addChild(new Bone({imgId:"palm", vl:35, ofY:0})));
 		
+		var leg1=new Bone({x: game_width/2, y:game_height/2, imgId:"hand", pvx:0, pvy:50});
+		leg1.addChild(new Bone({imgId:"hand-middle", vl:70}));
+		
+		var leg2=new Bone({x: game_width/2+60, y:game_height/2, imgId:"hand", pvx:0, pvy:-50});
+		leg2.addChild(new Bone({imgId:"hand-middle", vl:70}));
+		
 		var head=new Bone({imgId:"head", pvx:-190, vl:40, vx:0, vy:-1, imgAngle: Math.PI});
 		body=new Bone({x:game_width/2, y:game_height/2, imgId:"body", vl:170});
+		
+		body.addChild(head);
+		body.addChild(leg2);
+		body.addChild(leg1);
+		
 		body.addChild(hand1);
 		body.addChild(hand2);
-		body.addChild(head);
 		
 		body.updatePos();
 		body.updateVec();
