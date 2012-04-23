@@ -31,7 +31,7 @@
 		if(file_exists($key))
 			print file_get_contents($key);
 		else
-			print "error: path not found";
+			header("HTTP/1.0 404 Not Found");
 	}
 	else
 		header("HTTP/1.0 404 Not Found");

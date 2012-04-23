@@ -2,6 +2,7 @@
 <head>
 <title>Test game like</title>
 <meta name = "viewport" content = "user-scalable=no, width=device-width">
+<link rel="stylesheet" type="text/css" href='css/smoothness/jquery-ui-1.8.19.custom.css'>
 <style>
 body
 {
@@ -24,19 +25,40 @@ body
 	background-color: black;
 	color: white;
 }
+
+.bgTrp
+{
+	background: transparent;
+}
 </style>
 </head>
 <body>
 <div>
-<div id='keyPanel' style='width: 100px; height: 500px; position: absolute; left: 580px; top: 50px; border: 1px solid black'>
-	<div id='keys' style='height: 5em; overflow: auto; background-color: silver'>
+<div id='accordion' style='width: 300px; height: 500px; position: absolute; left: 580px; top: 50px; border: 1px solid black; font-size: 10pt'>
+	<div style='background-color: #F0F0F0'>
+		<h3 style='background-color: white'><a href='#'>keys panel</a></h3>
+		<div id='keyPanel' >
+			<div id='keys' style='height: 5em; overflow: auto; background-color: silver'>
+			</div>
+			<div><a href='#' onclick="removeSelKey(); return false;">del</a>&nbsp;<a href='#' onclick="addSelKeyToSeq(); return false;">add</a></div>
+			<div id='seq'>
+			</div>
+			<div><a href='#'  id='play' onclick='play(!playing); return false;'>play</a></div>
+			<div id='boneImg'>
+			</div>
+		</div>
 	</div>
-	<div><a href='#' onclick="removeSelKey(); return false;">del</a>&nbsp;<a href='#' onclick="addSelKeyToSeq(); return false;">add</a></div>
-	<div id='seq'>
+	<div>
+		<h3><a href='#'>bones panel</a></h3>
+		<div id='bonesPanel' style='background-color: #F0F0F0'>
+			<input type='checkbox' id='editMode'/><label for='editMode'>body builder</label>
+		</div>
 	</div>
-	<div><a href='#'  id='play' onclick='play(!playing); return false;'>play</a></div>
-	<div id='boneImg'>
-	</div>
+</div>
+
+
+<div style='position: absolute; top: 600px; left: 50px; width: 550px;'>
+	<div id='time' style='width: 4em; float: left'>0</div><div id='timePanel' style='float: left; width: 400px'></div>
 </div>
 </div>
 </body>
@@ -51,8 +73,10 @@ body
 <script src="GameObj.js"></script>
 <script src="AnimMgr.js"></script>
 <script src="appearance.js"></script>
+<script src="jquery-ui-1.8.19.custom.min.js"></script>
 <script>
 
+var baseState=null;
 var keys=new sjs.List();
 var seq=new sjs.List();
 var playing=false;
@@ -72,16 +96,21 @@ var animCtrlr=new AnimCtrlr();
 var objs = new sjs.List();
 var idCounter= 0;
 
+$("#timePanel").slider(
+{
+	step:0.01,
+	slide:function(e, ui)
+	{
+		body.setFrame({n: ui.value, seq:keys.list});
+		$("#time").html(ui.value);
+	}
+});
+
 function isKeyDown(key)
 {
 	if(key>=keyStates.length)
 		return false;
 	return keyStates[key]==1;
-}
-
-function getTimer()
-{
-	return new Date().getTime();
 }
 
 setInterval(function()
@@ -127,7 +156,7 @@ function onBoneImgChoice()
 {
 	selBone.imgId=$("#boneImg select").val();
 	selBone.updateSprite();
-	saveToSel(body.getState());
+	saveToSel(body.getState({base: baseState}));
 }
 
 function updateList(selector, list, selKey)
@@ -154,6 +183,13 @@ function updateKeys()
 
 function saveToSel(data)
 {
+	if(lockKeyModifying)
+	{
+		baseState = body.getState();
+		saveValue("animData", {keys: keys.list, base: baseState});
+		return;
+	}
+		
 	if(selKey==newKey)
 	{
 		keys.remove(newKey);
@@ -176,7 +212,7 @@ function saveToSel(data)
 	else
 		selKey.data=data;
 		
-	saveValue("animData", keys.list);
+	saveValue("animData", {keys: keys.list, base: baseState});
 }
 
 function removeSelKey()
@@ -187,6 +223,10 @@ function removeSelKey()
 	var idx=Math.min(Math.max(0, keys.list.indexOf(selKey)), keys.list.length-1);
 	selKey=keys.list[idx];
 	updateKeys();
+	
+	saveValue("animData", {keys: keys.list, base: baseState});
+	
+	$("#timePanel").slider("option", "max", keys.list.length-2);
 }
 
 function updateSeq()
@@ -217,7 +257,6 @@ function onCurrSeqChanged()
 	updateKeys();
 }
 
-var animIdx=0;
 var playTimerId=0;
 function play(run)
 {
@@ -235,11 +274,8 @@ function play(run)
 	{
 		if(!playing)
 			return;
-		/*animIdx=(animIdx+1)%(keys.list.length-1);
-		selKey=keys.list[animIdx];
-		updateKeys();
-		animCtrlr.animate(body, selKey.data, 200);*/
-		body.setFrame(getTimer()/500, keys.list);
+
+		body.setFrame({n: getTimer()/200, seq: keys.list});
 	},10);
 }
 
@@ -248,25 +284,42 @@ updateSeq();
 
 function loadData(data)
 {
-	keys.list=data;
+	baseState=data.base;
+	keys.list=data.keys;
 	keys.list[keys.list.length-1]=newKey;
 	if(keys.list.length>1)
-		animCtrlr.animate(body, keys.list[keys.list.length-2].data, 0.01);
+		animCtrlr.animate(body, keys.list[keys.list.length-2].data, 0.01, baseState);
 	updateKeys();
 	updateSeq();
+	$("#timePanel").slider("option", "max", keys.list.length-2);
 }
-
-
-loadValue("animData", function(data)
-{
-	loadData(data);
-});
 
 var body=null;
 var rootScene=null;
 var animMgr=null;
+var buildBody=false;
+var lockKeyModifying=false;
+
+function onBodyEditMode(ok)
+{
+	buildBody=ok;
+	lockKeyModifying=ok;
+	body.setState(baseState);
+	body.animTo(1);
+}
+
 window.onload = function()
 {
+	$("#accordion").accordion({header:"h3", autoHeight: false});
+	$("#accordion .ui-accordion-content").addClass("bgTrp");
+	$("#editMode").button().click(function(e)
+	{
+		if(!$(this).attr("checked"))
+			onBodyEditMode(false);
+		else
+			onBodyEditMode(true);
+	});
+	
 	$("#keyPanel").click(function(e)
 	{
 		if($(e.target).hasClass("key"))
@@ -279,7 +332,7 @@ window.onload = function()
 			if(selKey!=newKey)
 			{
 				//body.setState(selKey.data);
-				animCtrlr.animate(body, selKey.data, 300);
+				animCtrlr.animate(body, selKey.data, 300, baseState);
 			}
 		}
 	});
@@ -296,17 +349,7 @@ window.onload = function()
 	var captured=false;
 	var lastHitObj=null;
 	var hitPos={x:0, y:0};
-	function getMousePos(e, relative)
-	{
-		var rX=0;
-		var rY=0;
-		if(relative)
-		{
-			rX=relative.offsetLeft;
-			rY=relative.offsetTop;
-		}
-		return {x: e.clientX-rX, y: e.clientY-rY};
-	}
+	
 	
 	$(rootScene.dom).mousedown(function(e)
 	{
@@ -323,7 +366,7 @@ window.onload = function()
 	{
 		if(lastHitObj!=null)
 		{
-			saveToSel(body.getState());
+			saveToSel(body.getState({base:baseState}));
 			lastHitObj=null;
 		}
 		captured=false;
@@ -390,14 +433,6 @@ window.onload = function()
 	animCtrlr = new AnimCtrlr();
 
 	animMgr=new AnimMgr();
-	animMgr.add("bullet", 		{});
-	animMgr.add("missile",		{w:32, h:56});
-	animMgr.add("smoke",		{});
-	animMgr.add("spaceShip",	{});
-	animMgr.add("meteor",		{w:64, h:64});
-	animMgr.add("boom",			{w:96, h:96});
-	animMgr.add("sfx",			{w:67, h:64});
-	animMgr.add("sfx2",			{w:33, h:64});
 	animMgr.add("hand",			{});
 	animMgr.add("hand-middle",	{});
 	animMgr.add("palm",			{});
@@ -409,20 +444,20 @@ window.onload = function()
 	animMgr.load(function()
 	{
 		updateBoneImg();
-		var hand1=new Bone({x: game_width/2, y:game_height/2, imgId:"hand", pvx:-170, pvy:80});
+		var hand1=new Bone({imgId:"hand", pvx:-170, pvy:80});
 		hand1.addChild(new Bone({imgId:"hand-middle", vl:70}).addChild(new Bone({imgId:"palm", vl:35, ofY:0})));
 		
-		var hand2=new Bone({x: game_width/2+60, y:game_height/2, imgId:"hand", pvx:-170, pvy:-80});
+		var hand2=new Bone({imgId:"hand", pvx:-170, pvy:-80});
 		hand2.addChild(new Bone({imgId:"hand-middle", vl:70}).addChild(new Bone({imgId:"palm", vl:35, ofY:0})));
 		
-		var leg1=new Bone({x: game_width/2, y:game_height/2, imgId:"hand", pvx:0, pvy:50});
+		var leg1=new Bone({imgId:"hand", pvx:0, pvy:50});
 		leg1.addChild(new Bone({imgId:"hand-middle", vl:70}));
 		
-		var leg2=new Bone({x: game_width/2+60, y:game_height/2, imgId:"hand", pvx:0, pvy:-50});
+		var leg2=new Bone({imgId:"hand", pvx:0, pvy:-50});
 		leg2.addChild(new Bone({imgId:"hand-middle", vl:70}));
 		
 		var head=new Bone({imgId:"head", pvx:-190, vl:40, vx:0, vy:-1, imgAngle: Math.PI});
-		body=new Bone({x:game_width/2, y:game_height/2, imgId:"body", vl:170});
+		body=new Bone({x:game_width/2, y:100, imgId:"body", vl:170});
 		
 		body.addChild(head);
 		body.addChild(leg2);
@@ -433,6 +468,13 @@ window.onload = function()
 		
 		body.updatePos();
 		body.updateVec();
+		body.makeIds();
+		baseState=body.getState();
+		
+		loadValue("animData", function(data)
+		{
+			loadData(data);
+		});
 		
 		ticker.run();
 	});

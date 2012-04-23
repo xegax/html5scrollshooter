@@ -3,9 +3,9 @@ function AnimCtrlr(opts)
 	var obj={list:[]};
 	merge(obj, opts);
 		
-	obj.animate=function(bone, newState, time)
+	obj.animate=function(bone, newState, time, base)
 	{
-		bone.setState(newState);
+		bone.setState(newState, base);
 		
 		var idx=this.list.indexOf(bone);
 		if(idx==-1)
@@ -38,6 +38,6 @@ function AnimCtrlr(opts)
 	obj.timerId=setInterval(function()
 	{
 		obj.doAnimate();
-	}, 100);
+	}, 10);
 	return obj;
 }
