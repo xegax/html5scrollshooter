@@ -215,11 +215,8 @@ function Bone(opts)
 			opts.skipChilds=false;
 		
 		var arr=[];
-		if(this.parent==null)
-		{
-			arr[0]=parseInt(this.x);
-			arr[1]=parseInt(this.y);
-		}
+		arr[0]=parseInt(this.x);
+		arr[1]=parseInt(this.y);
 		
 		var vx=parseInt(this.vx*1000)/1000;
 		var vy=parseInt(this.vy*1000)/1000;
@@ -308,7 +305,6 @@ function Bone(opts)
 			base=[];
 			
 		this.newState=fromBase(state[this.id], base[this.id]);
-		
 		this.currState=this.getState({base: base, skipChilds:true});
 		this.currState=fromBase(this.currState[this.id], base[this.id]);
 		
@@ -316,6 +312,14 @@ function Bone(opts)
 		{
 			this.imgId=this.newState[4];
 			this.updateSprite();
+		}
+		
+		if(this.parent==null)
+		{
+			this.newState[5]=0;
+			this.newState[6]=0;
+			this.currState[5]=0;
+			this.currState[6]=0;
 		}
 		
 		var n=-1;
@@ -342,9 +346,9 @@ function Bone(opts)
 	
 	bone.setFrame=function(opts)
 	{
-		n = opts.n;
-		seq = opts.seq;
-		animTo = opts.animTo;
+		var n = opts.n;
+		var seq = opts.seq;
+		var animTo = opts.animTo;
 		
 		if(typeof n=="undefined")
 			n=0;
@@ -360,7 +364,7 @@ function Bone(opts)
 		var kf=Math.floor(n);
 		var nextFrame=(kf+1)%fn;
 		if(kf!=this.keyFrame)
-			this.updateFrame(seq[kf].data, seq[nextFrame].data, kf);
+			this.updateFrame(seq[nextFrame].data, seq[kf].data, kf);
 		
 		if(animTo==false)
 			return;

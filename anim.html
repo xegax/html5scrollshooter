@@ -208,6 +208,7 @@ function saveToSel(data)
 			selSeq=addSeq;
 			updateSeq();
 		}
+		$("#timePanel").slider("option", "max", keys.list.length-2);
 	}
 	else
 		selKey.data=data;
