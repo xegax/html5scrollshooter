@@ -200,19 +200,23 @@ function Bone(opts)
 			]
 		]
 	*/
-	bone.getState=function(opts)
+	bone.getState=function(args)
 	{
-		if(typeof opts=="undefined")
-			opts={};
+		if(typeof args=="undefined")
+			args={};
 			
-		if(typeof opts.state=="undefined")
-			opts.state=[];
+		if(typeof args.state=="undefined")
+			args.state=[];
 		
-		if(typeof opts.base=="undefined")
-			opts.base=[];
+		if(typeof args.base=="undefined")
+			args.base=[];
 		
-		if(typeof opts.skipChilds=="undefined")
-			opts.skipChilds=false;
+		if(typeof args.skipChilds=="undefined")
+			args.skipChilds=false;
+		
+		var base=args.base[this.id];
+		if(typeof base=="undefined")
+			base=[];
 		
 		var arr=[];
 		arr[0]=parseInt(this.x);
@@ -220,38 +224,38 @@ function Bone(opts)
 		
 		var vx=parseInt(this.vx*1000)/1000;
 		var vy=parseInt(this.vy*1000)/1000;
-		if(opts.base[2]!=vx)
+		if(base[2]!=vx)
 			arr[2]=vx;
 			
-		if(opts.base[3]!=vy)
+		if(base[3]!=vy)
 			arr[3]=vy;
 		
-		if(opts.base[4]!=this.imgId)
+		if(base[4]!=this.imgId)
 			arr[4]=this.imgId;
 		
 		if(this.parent!=null)
 		{
 			x=parseInt(this.pvx);
 			y=parseInt(this.pvy);
-			if(x!=opts.base[5])
+			if(x!=base[5])
 				arr[5]=x;
-			if(y!=opts.base[6])
+			if(y!=base[6])
 				arr[6]=y;
 		}
 		
-		opts.state[this.id]=arr;
+		args.state[this.id]=arr;
 		
-		if(opts.skipChilds)
-			return opts.state;
+		if(args.skipChilds)
+			return args.state;
 			
 		var n=-1;
 		while(++n<this.childs.length)
 		{
 			var child=this.childs[n];
-			child.getState(opts);
+			child.getState(args);
 		}
 
-		return opts.state;
+		return args.state;
 	}
 	
 	bone.animTo=function(time)
@@ -287,7 +291,7 @@ function Bone(opts)
 			return state;
 			
 		var n=-1;
-		while(++n<6)
+		while(++n<7)
 		{
 			if(n >= base.length)
 				continue;
@@ -304,9 +308,11 @@ function Bone(opts)
 		if(typeof base=="undefined")
 			base=[];
 			
-		this.newState=fromBase(state[this.id], base[this.id]);
-		this.currState=this.getState({base: base, skipChilds:true});
-		this.currState=fromBase(this.currState[this.id], base[this.id]);
+		this.newState=state[this.id].slice();
+		fromBase(this.newState, base[this.id]);
+		
+		this.currState=this.getState({base: base, skipChilds:true})[this.id];
+		fromBase(this.currState, base[this.id]);
 		
 		if(this.newState[4]!=this.imgId)
 		{
@@ -327,10 +333,17 @@ function Bone(opts)
 			this.childs[n].setState(state, base);
 	}
 	
-	bone.updateFrame=function(newState, currState, kf)
+	bone.updateFrame=function(newState, currState, kf, base)
 	{
-		this.newState=newState[this.id];
-		this.currState=currState[this.id];
+		if(typeof base=="undefined")
+			base=[];
+			
+		this.newState=newState[this.id].slice();
+		fromBase(this.newState, base[this.id]);
+		
+		this.currState=currState[this.id].slice();
+		fromBase(this.currState, base[this.id]);
+		
 		this.keyFrame=kf;
 		
 		if(this.currState[4]!=this.imgId)
@@ -341,7 +354,7 @@ function Bone(opts)
 		
 		var n=-1;
 		while(++n<this.childs.length)
-			this.childs[n].updateFrame(newState, currState, kf);
+			this.childs[n].updateFrame(newState, currState, kf, base);
 	}
 	
 	bone.setFrame=function(opts)
@@ -349,6 +362,7 @@ function Bone(opts)
 		var n = opts.n;
 		var seq = opts.seq;
 		var animTo = opts.animTo;
+		var base = opts.base;
 		
 		if(typeof n=="undefined")
 			n=0;
@@ -358,13 +372,16 @@ function Bone(opts)
 		
 		if(typeof animTo=="undefined")
 			animTo=true;
+		
+		if(typeof base=="undefined")
+			base=[];
 			
 		var fn = seq.length-1;
 		n = n%fn;
 		var kf=Math.floor(n);
 		var nextFrame=(kf+1)%fn;
 		if(kf!=this.keyFrame)
-			this.updateFrame(seq[nextFrame].data, seq[kf].data, kf);
+			this.updateFrame(seq[nextFrame].data, seq[kf].data, kf, base);
 		
 		if(animTo==false)
 			return;

@@ -101,7 +101,7 @@ $("#timePanel").slider(
 	step:0.01,
 	slide:function(e, ui)
 	{
-		body.setFrame({n: ui.value, seq:keys.list});
+		body.setFrame({n: ui.value, seq:keys.list, base:baseState});
 		$("#time").html(ui.value);
 	}
 });
@@ -276,7 +276,7 @@ function play(run)
 		if(!playing)
 			return;
 
-		body.setFrame({n: getTimer()/200, seq: keys.list});
+		body.setFrame({n: getTimer()/200, seq: keys.list, base:baseState});
 	},10);
 }
 

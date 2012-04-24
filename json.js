@@ -293,6 +293,8 @@ if (!JSON) {
         case 'string':
             return quote(value);
 
+		case 'undefined':
+			return "";
         case 'number':
 
 // JSON numbers must be finite. Encode non-finite numbers as null.
